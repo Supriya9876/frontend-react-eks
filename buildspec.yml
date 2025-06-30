@@ -1,0 +1,51 @@
+version: 0.2
+
+env:
+  variables:
+    ACCOUNT_ID: 535002878565
+    REGION: us-east-1
+    FRONTEND_REPO: react-image
+    K8S_MANIFEST_DIR: .
+    DOCKER_USER: sb346
+    DOCKER_PASS: Supriya@123
+    
+phases:
+  install:
+    runtime-versions:
+      nodejs: 18
+    commands:
+      - echo Installing Dependencies...
+      - npm install
+    
+  pre_build:
+    commands:
+      - echo Setting Dynamic Image Tag
+      - export IMAGE_TAG=v1.${CODEBUILD_BUILD_NUMBER}
+      - echo loging to dockerhub
+      - echo $DOCKER_PASS | docker login -u $DOCKER_USER --password-stdin
+      - echo Logging to ECR
+      - aws ecr get-login-password --region $REGION | docker login --username AWS --password-stdin ${ACCOUNT_ID}.dkr.ecr.${REGION}.amazonaws.com
+      
+  build:
+    commands:
+      - echo building react app...
+      - npm run build
+      - echo Building docker Image...
+      - docker build -t $FRONTEND_REPO:$IMAGE_TAG .
+      - docker tag $FRONTEND_REPO:$IMAGE_TAG ${ACCOUNT_ID}.dkr.ecr.${REGION}.amazonaws.com/$FRONTEND_REPO:$IMAGE_TAG
+      
+  post_build:
+    commands:
+      - echo Push the docker image to ECR
+      - docker push ${ACCOUNT_ID}.dkr.ecr.${REGION}.amazonaws.com/$FRONTEND_REPO:$IMAGE_TAG
+      - echo Creating a manifest directory
+      - mkdir -p k8s-out
+      - echo Changing the image in Deployment
+      - sed "s|IMAGE_PLACEHOLDER|${ACCOUNT_ID}.dkr.ecr.${REGION}.amazonaws.com/$FRONTEND_REPO:$IMAGE_TAG|g" $K8S_MANIFEST_DIR/deployment.yaml > k8s-out/deployment.yaml
+      - cp $K8S_MANIFEST_DIR/service.yaml k8s-out/service.yaml
+
+artifacts:
+  base-directory: k8s-out
+  discard-paths: yes
+  files:
+    - '*.yaml'
